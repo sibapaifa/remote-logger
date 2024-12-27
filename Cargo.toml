@@ -4,14 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-chrono-utc = []
-chrono-local = []
-default = ["chrono-utc"]
-
+chrono-utc = ["dep:chrono"]
+chrono-local = ["dep:chrono"]
+default = []
 
 [dependencies]
 async-trait = "0.1.83"
-chrono = "0.4.39"
+chrono = { version = "0.4.39", optional = true }
 log = { version = "0.4.22", features = ["kv", "kv_serde", "kv_std", "std"] }
 serde_json = "1.0.134"
 tokio = { version = "1.42.0", features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.42.0", features = ["full"] }

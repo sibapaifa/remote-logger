@@ -29,8 +29,8 @@ type MessageQueue = Arc<Mutex<VecDeque<LogMessage>>>;
 /// Trait to send log messages to remote target
 #[async_trait]
 pub trait SendLog: Send + Sync + 'static {
-    const BATCH_SIZE: usize = 100;
-    const WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+    const BATCH_SIZE: usize;
+    const WAIT_TIMEOUT: Duration;
     async fn send_log(&self, messages: &[LogMessage]);
 }
 
@@ -41,9 +41,7 @@ pub trait Append: Send + Sync + 'static {
     fn max_level(&self) -> LevelFilter;
     fn module_level(&self) -> &[ModuleLevel];
     fn append(&self, record: &log::Record) -> Result<()>;
-    async fn close(&self) -> Result<()> {
-        Ok(())
-    }
+    async fn close(&self) -> Result<()>;
     fn enabled(&self, record: &Record) -> bool {
         if record.level().to_level_filter() > self.max_level() {
             return false;
@@ -126,6 +124,7 @@ impl Default for ConsoleAppender {
 }
 
 /// Implement Append for ConsoleAppender
+#[async_trait]
 impl Append for ConsoleAppender {
     fn target(&self) -> &str {
         self.target.as_deref().unwrap_or_default()
@@ -142,9 +141,14 @@ impl Append for ConsoleAppender {
     fn append(&self, record: &log::Record) -> Result<()> {
         if self.enabled(record) {
             if let Some(message) = self.formatter.format_message(record) {
-                println!("{}", message);
+                std::io::stdout().write_all(message.as_bytes())?;
             }
         }
+        Ok(())
+    }
+
+    async fn close(&self) -> Result<()> {
+        std::io::stdout().flush()?;
         Ok(())
     }
 }
@@ -296,7 +300,9 @@ impl<S: SendLog> RemoteAppender<S> {
                             let size = if size < batch_size {size} else {batch_size};
                             message_queue.drain(0..size).collect::<Vec<_>>()
                         };
-                        log_sender.send_log(&messages).await;
+                        if !messages.is_empty() {
+                            log_sender.send_log(&messages).await;
+                        }
                     }
                 } => {}
             }

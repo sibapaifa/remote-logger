@@ -83,12 +83,15 @@ impl FormatMessage for DefaultFormatter {
         let level = record.level();
         let args = record.args();
         let message = format!(
-            "{}{:<5} {} [{}:{}] {}",
+            "{} {} {} [{}:{}] {}\n",
             timestamp, level, module, file, line, args
         );
         Some(message)
     }
 }
+
+#[cfg(all(feature = "chrono-local", feature = "chrono-utc"))]
+compile_error!("The `chrono-local` and `chrono-utc` features are mutually exclusive and cannot be enabled at the same time!");
 
 #[cfg(feature = "chrono-utc")]
 fn get_timestamp() -> String {
@@ -100,7 +103,7 @@ fn get_timestamp() -> String {
 #[cfg(feature = "chrono-local")]
 fn get_timestamp() -> String {
     chrono::Local::now()
-        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .format("%Y-%m-%dT%H:%M:%S%.3f%Z")
         .to_string()
 }
 

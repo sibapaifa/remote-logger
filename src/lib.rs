@@ -12,9 +12,13 @@ mod log_message;
 pub use crate::append::ConsoleAppender;
 pub use crate::append::FileAppender;
 pub use crate::append::RemoteAppender;
+pub use crate::append::SendLog;
+pub use crate::log_message::FormatMessage;
+pub use crate::log_message::LogMessage;
 
 type AppendersList = Arc<Vec<Box<dyn Append>>>;
 
+#[must_use = "method `close_all` must be called before exit"]
 pub struct LoggerHandle {
     appenders: AppendersList,
 }
@@ -24,7 +28,7 @@ impl LoggerHandle {
         Self { appenders }
     }
 
-    pub async fn close_all(&self) -> Result<()> {
+    pub async fn close_all(self) -> Result<()> {
         for appender in self.appenders.iter() {
             appender.close().await?;
         }
