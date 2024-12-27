@@ -1,5 +1,9 @@
 [package]
 name = "remote_logger"
+description = "A `tokio` based logger that can send log messages to remote target asynchronously"
+license = "MIT"
+authors = ["Sibaprasad Maiti <sibaprasad.maiti@aifalabs.com>"]
+repository = "https://github.com/sibapaifa/remote-logger"
 version = "0.1.0"
 edition = "2021"
 

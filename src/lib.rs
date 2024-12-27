@@ -18,6 +18,9 @@ pub use crate::log_message::LogMessage;
 
 type AppendersList = Arc<Vec<Box<dyn Append>>>;
 
+/// Provides `close_all` method
+/// Which ensures all in-flight messages are flushed.
+/// `close_all` method must be called before shutdown.
 #[must_use = "method `close_all` must be called before exit"]
 pub struct LoggerHandle {
     appenders: AppendersList,
@@ -37,6 +40,8 @@ impl LoggerHandle {
     }
 }
 
+/// Implements [`Log`] and initlizes logger.
+/// `init` method must be called to start logging.
 pub struct RemoteLogger {
     max_level: LevelFilter,
     appenders: AppendersList,

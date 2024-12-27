@@ -235,7 +235,7 @@ impl Append for FileAppender {
     }
 }
 
-/// Appender that bulk upload messages to remote API
+/// Appender that sends messages to remote target asynchronously
 pub struct RemoteAppender<S: SendLog> {
     target: Option<String>,
     max_level: LevelFilter,
@@ -327,7 +327,7 @@ impl<S: SendLog> RemoteAppender<S> {
     }
 }
 
-/// Implement Append for FileAppender
+/// Implement Append for RemoteAppender
 #[async_trait]
 impl<S: SendLog> Append for RemoteAppender<S> {
     fn target(&self) -> &str {
