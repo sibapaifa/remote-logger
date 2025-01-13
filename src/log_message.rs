@@ -111,3 +111,52 @@ fn get_timestamp() -> String {
 fn get_timestamp() -> String {
     String::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use log::{
+        kv::{Error as KvError, Key, Source, Value, VisitSource},
+        RecordBuilder,
+    };
+
+    use super::*;
+
+    struct MyKeyValues<'a>(&'a [(&'a str, i32)]);
+
+    impl<'a> Source for MyKeyValues<'a> {
+        fn get(&self, key: Key) -> Option<Value<'_>> {
+            Source::get(self.0, key)
+        }
+        fn visit<'kvs>(&'kvs self, visitor: &mut dyn VisitSource<'kvs>) -> Result<(), KvError> {
+            self.0.visit(visitor)
+        }
+    }
+
+    #[test]
+    fn test_log_message() {
+        let target = "TEST_TARGET";
+        let module = module_path!();
+        let file = file!();
+        let line = line!();
+        let level = log::Level::Info;
+        let kvs = [("KEY_1", 1), ("KEY_2", 2)];
+        let kvs = MyKeyValues(&kvs);
+        let record = RecordBuilder::new()
+            .target(target)
+            .module_path(Some(module))
+            .file(Some(file))
+            .line(Some(line))
+            .level(level)
+            .args(format_args!("Test Message"))
+            .key_values(&kvs)
+            .build();
+        let message = LogMessage::try_from(&record).unwrap();
+        assert_eq!(message.target(), target);
+        assert_eq!(message.file_name(), file);
+        assert_eq!(message.line_no(), line);
+        assert_eq!(message.module(), module);
+        assert_eq!(message.level(), level);
+        assert_eq!(message.message(), "Test Message");
+        assert_eq!(message.key_values().len(), 2);
+    }
+}

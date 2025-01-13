@@ -224,6 +224,7 @@ impl Append for FileAppender {
             if let Some(message) = self.formatter.format_message(record) {
                 let mut file = self.file.lock()?;
                 file.write_all(message.as_bytes())?;
+                file.flush()?;
             }
         }
         Ok(())
@@ -351,5 +352,127 @@ impl<S: SendLog> Append for RemoteAppender<S> {
         self.close_notifier.send(()).await?;
         self.flush().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use log::RecordBuilder;
+
+    #[test]
+    fn test_console_appender() {
+        let test_target = "TEST_TARGET";
+        let module = module_path!(); // remote_logger::append::tests
+        let console_appender = ConsoleAppender::new()
+            .with_max_level(LevelFilter::Debug)
+            .with_target(test_target)
+            .with_module_level((module.to_owned(), LevelFilter::Info));
+        assert_eq!(console_appender.target, Some(test_target.to_owned()));
+        assert_eq!(console_appender.max_level, LevelFilter::Debug);
+        assert!(!console_appender.module_levels.is_empty());
+
+        let record = RecordBuilder::new()
+            .level(LevelFilter::Trace.to_level().unwrap())
+            .build();
+        let is_enabled = console_appender.enabled(&record);
+        assert!(!is_enabled);
+
+        let file = file!();
+        let line = line!();
+        let level = LevelFilter::Info.to_level().unwrap();
+        let msg = "TEST LOG MESSAGE";
+        let record = RecordBuilder::new()
+            .target(test_target)
+            .module_path(Some(module))
+            .file(Some(file))
+            .line(Some(line))
+            .level(level)
+            .args(format_args!("TEST LOG MESSAGE"))
+            .build();
+        let is_enabled = console_appender.enabled(&record);
+        assert!(is_enabled);
+        let message = console_appender.formatter.format_message(&record).unwrap();
+        assert!(message.contains(module));
+        assert!(message.contains(file));
+        {
+            let line = line.to_string();
+            let level = level.to_string();
+            assert!(message.contains(line.as_str()));
+            assert!(message.contains(level.as_str()));
+        }
+        assert!(message.contains(msg));
+    }
+
+    #[test]
+    fn test_file_appender() {
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let test_target = "TEST_TARGET";
+        let module = module_path!(); // remote_logger::append::tests
+        let file_path = temp_file.path();
+        let file_appender = FileAppender::new(file_path)
+            .unwrap()
+            .with_target(test_target)
+            .with_max_level(LevelFilter::Info);
+        let record = RecordBuilder::new()
+            .target(test_target)
+            .module_path(Some(module))
+            .level(log::Level::Info)
+            .build();
+        assert!(file_appender.enabled(&record));
+
+        let file_appender = FileAppender::new(file_path)
+            .unwrap()
+            .with_target(test_target)
+            .with_max_level(LevelFilter::Info)
+            .with_module_level((module.to_owned(), LevelFilter::Error));
+
+        let record = RecordBuilder::new()
+            .target(test_target)
+            .module_path(Some(module))
+            .level(log::Level::Info)
+            .build();
+        assert!(!file_appender.enabled(&record));
+
+        let record = RecordBuilder::new()
+            .target(test_target)
+            .module_path(Some(module))
+            .level(log::Level::Error)
+            .build();
+        assert!(file_appender.enabled(&record));
+    }
+
+    #[tokio::test]
+    async fn test_remote_appender() {
+        const EXPECTED_BATCH_SIZE: u32 = 3;
+        struct LogSender(Arc<Mutex<u32>>);
+        #[async_trait]
+        impl SendLog for LogSender {
+            const BATCH_SIZE: usize = EXPECTED_BATCH_SIZE as usize;
+            const WAIT_TIMEOUT: Duration = Duration::from_millis(10);
+            async fn send_log(&self, messages: &[LogMessage]) {
+                assert!(messages.len().le(&Self::BATCH_SIZE));
+                let mut count = self.0.lock().unwrap();
+                *count += 1;
+            }
+        }
+
+        let count = Arc::new(Mutex::new(0));
+        let log_sender = LogSender(count.clone());
+        let remote_appender = RemoteAppender::new(log_sender);
+        let message_count = 10;
+        for _ in 0..message_count {
+            let record = RecordBuilder::new()
+                .args(format_args!("test message"))
+                .build();
+            remote_appender.append(&record).unwrap();
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        remote_appender.close().await.unwrap();
+        {
+            let expected_count = (message_count / EXPECTED_BATCH_SIZE) + 1;
+            let count = count.lock().unwrap();
+            assert_eq!(*count, expected_count);
+        }
     }
 }
