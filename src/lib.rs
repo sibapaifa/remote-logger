@@ -9,6 +9,7 @@ mod error;
 mod kvs;
 mod log_message;
 
+pub use crate::append::ChannelAppender;
 pub use crate::append::ConsoleAppender;
 pub use crate::append::FileAppender;
 pub use crate::append::RemoteAppender;

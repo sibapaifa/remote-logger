@@ -193,7 +193,6 @@ impl FileAppender {
         self.max_level = level;
         self
     }
-
     pub fn with_formatter<F: FormatMessage>(mut self, formatter: F) -> Self {
         self.formatter = Box::new(formatter);
         self
@@ -232,6 +231,64 @@ impl Append for FileAppender {
     async fn close(&self) -> Result<()> {
         let mut file = self.file.lock()?;
         file.flush()?;
+        Ok(())
+    }
+}
+
+type StdSender = std::sync::mpsc::Sender<LogMessage>;
+/// Appender that pass on the message to an mpsc channel
+pub struct ChannelAppender {
+    target: Option<String>,
+    max_level: LevelFilter,
+    module_levels: Vec<ModuleLevel>,
+    sender: StdSender,
+}
+
+impl ChannelAppender {
+    pub fn new(sender: StdSender) -> Self {
+        Self {
+            target: None,
+            max_level: LevelFilter::Trace,
+            module_levels: vec![],
+            sender,
+        }
+    }
+
+    pub fn with_target(mut self, target: &str) -> Self {
+        self.target = Some(target.to_owned());
+        self
+    }
+
+    pub fn with_max_level(mut self, level: LevelFilter) -> Self {
+        self.max_level = level;
+        self
+    }
+
+    pub fn with_module_level(mut self, module_level: ModuleLevel) -> Self {
+        let module_levels: &mut Vec<ModuleLevel> = self.module_levels.as_mut();
+        module_levels.push(module_level);
+        module_levels.sort_by_key(|l| l.0.len().wrapping_neg());
+        self
+    }
+}
+
+/// Implement `Append` for ChannelAppender
+#[async_trait]
+impl Append for ChannelAppender {
+    fn target(&self) -> &str {
+        self.target.as_deref().unwrap_or_default()
+    }
+    fn max_level(&self) -> LevelFilter {
+        self.max_level
+    }
+    fn module_level(&self) -> &[ModuleLevel] {
+        self.module_levels.as_slice()
+    }
+    fn append(&self, record: &log::Record) -> Result<()> {
+        self.sender.send(record.try_into()?)?;
+        Ok(())
+    }
+    async fn close(&self) -> Result<()> {
         Ok(())
     }
 }
@@ -440,6 +497,20 @@ mod tests {
             .level(log::Level::Error)
             .build();
         assert!(file_appender.enabled(&record));
+    }
+
+    #[test]
+    fn test_channel_appender() {
+        let (sender, receiver) = std::sync::mpsc::channel::<LogMessage>();
+        let channel_appender = ChannelAppender::new(sender);
+        let record = RecordBuilder::new()
+            .target("test_target")
+            .module_path(Some("module"))
+            .level(log::Level::Info)
+            .build();
+        channel_appender.append(&record).unwrap();
+        let msg = receiver.recv().unwrap();
+        assert_eq!(msg.level(), log::Level::Info);
     }
 
     #[tokio::test]

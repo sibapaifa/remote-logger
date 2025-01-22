@@ -53,6 +53,12 @@ impl From<SendError<()>> for Error {
     }
 }
 
+impl<T> From<std::sync::mpsc::SendError<T>> for Error {
+    fn from(value: std::sync::mpsc::SendError<T>) -> Self {
+        Self::Send(value.to_string())
+    }
+}
+
 impl From<SetLoggerError> for Error {
     fn from(value: SetLoggerError) -> Self {
         Self::SetLogger(value.to_string())
