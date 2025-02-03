@@ -83,7 +83,7 @@ impl FormatMessage for DefaultFormatter {
         let level = record.level();
         let args = record.args();
         let message = format!(
-            "{} {} {} [{}:{}] {}\n",
+            "{} {} {} [{}:{}] {}\n\n",
             timestamp, level, module, file, line, args
         );
         Some(message)
