@@ -11,6 +11,7 @@ pub struct LogMessage {
     file_name: String,
     line_no: u32,
     message: String,
+    timestamp: String,
     key_values: KeyValues,
 }
 
@@ -33,6 +34,9 @@ impl LogMessage {
     pub fn message(&self) -> &str {
         self.message.as_str()
     }
+    pub fn timestamp(&self) -> &str {
+        self.timestamp.as_str()
+    }
     pub fn key_values(&self) -> &KeyValues {
         &self.key_values
     }
@@ -52,6 +56,7 @@ impl<'a> TryFrom<&Record<'a>> for LogMessage {
         let file_name = value.file().map(|s| s.to_owned()).unwrap_or_default();
         let line_no = value.line().unwrap_or_default();
         let message = format!("{}", value.args());
+        let timestamp = get_timestamp();
         let mut key_values = KeyValues::new();
         value.key_values().visit(&mut key_values)?;
         Ok(Self {
@@ -61,6 +66,7 @@ impl<'a> TryFrom<&Record<'a>> for LogMessage {
             file_name,
             line_no,
             message,
+            timestamp,
             key_values,
         })
     }
