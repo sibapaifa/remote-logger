@@ -64,7 +64,7 @@ pub trait Append: Send + Sync + 'static {
             if let Some((_, level)) = self
                 .module_level()
                 .iter()
-                .find(|(m, _)| m.starts_with(module))
+                .find(|(m, _)| module.starts_with(m))
             {
                 if &record.level().to_level_filter() > level {
                     return false;
@@ -545,5 +545,17 @@ mod tests {
             let count = count.lock().unwrap();
             assert_eq!(*count, expected_count);
         }
+    }
+
+    #[test]
+    fn test_module_level() {
+        let appender = ConsoleAppender::new()
+            .with_max_level(LevelFilter::Trace)
+            .with_module_level(("hyper_util".to_string(), LevelFilter::Off));
+        let record = RecordBuilder::new()
+            .level(log::Level::Info)
+            .module_path(Some("hyper_util::client::legacy::pool"))
+            .build();
+        assert!(!appender.enabled(&record));
     }
 }
