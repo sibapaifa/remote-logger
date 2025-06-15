@@ -1,11 +1,9 @@
-use std::sync::mpsc::channel;
-
 use remote_logger::{ChannelAppender, LogMessage, RemoteLogger};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     println!("Running Channel appender example");
-    let (sender, receiver) = channel::<LogMessage>();
+    let (sender, receiver) = crossbeam_channel::unbounded::<LogMessage>();
     let handle = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
         handle.block_on(async move {

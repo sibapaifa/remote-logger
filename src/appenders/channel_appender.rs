@@ -9,18 +9,19 @@ use crate::{
 
 use super::{Append, ModuleLevel};
 
-type StdSender = std::sync::mpsc::Sender<LogMessage>;
+type MessageSender = crossbeam_channel::Sender<LogMessage>;
+
 /// Appender that pass on the message to an mpsc channel
 pub struct ChannelAppender {
     target: Option<String>,
     max_level: LevelFilter,
     module_levels: Vec<ModuleLevel>,
-    sender: StdSender,
+    sender: MessageSender,
     message_filter: Box<dyn MessageFilter>,
 }
 
 impl ChannelAppender {
-    pub fn new(sender: StdSender) -> Self {
+    pub fn new(sender: MessageSender) -> Self {
         Self {
             target: None,
             max_level: LevelFilter::Trace,
@@ -88,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_channel_appender() {
-        let (sender, receiver) = std::sync::mpsc::channel::<LogMessage>();
+        let (sender, receiver) = crossbeam_channel::unbounded::<LogMessage>();
         let channel_appender = ChannelAppender::new(sender);
         let record = RecordBuilder::new()
             .target("test_target")
@@ -110,7 +111,7 @@ mod tests {
         }
 
         let counter = Arc::new(AtomicU32::new(0));
-        let (sender, receiver) = std::sync::mpsc::channel::<LogMessage>();
+        let (sender, receiver) = crossbeam_channel::unbounded::<LogMessage>();
         let filter = Filter;
         let channel_appender = ChannelAppender::new(sender).with_message_filter(filter);
         let count = 10;

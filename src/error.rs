@@ -53,8 +53,8 @@ impl From<SendError<()>> for Error {
     }
 }
 
-impl<T> From<std::sync::mpsc::SendError<T>> for Error {
-    fn from(value: std::sync::mpsc::SendError<T>) -> Self {
+impl<T> From<crossbeam_channel::SendError<T>> for Error {
+    fn from(value: crossbeam_channel::SendError<T>) -> Self {
         Self::Send(value.to_string())
     }
 }
