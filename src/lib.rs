@@ -2,18 +2,19 @@ use std::sync::Arc;
 
 use log::{LevelFilter, Log};
 
-use crate::{append::Append, error::Result};
+use crate::{appenders::Append, error::Result};
 
-mod append;
+mod appenders;
 mod error;
 mod kvs;
 mod log_message;
+mod message_filter;
 
-pub use crate::append::ChannelAppender;
-pub use crate::append::ConsoleAppender;
-pub use crate::append::FileAppender;
-pub use crate::append::RemoteAppender;
-pub use crate::append::SendLog;
+pub use crate::appenders::ChannelAppender;
+pub use crate::appenders::ConsoleAppender;
+pub use crate::appenders::FileAppender;
+pub use crate::appenders::RemoteAppender;
+pub use crate::appenders::SendLog;
 pub use crate::log_message::FormatMessage;
 pub use crate::log_message::LogMessage;
 
