@@ -1,10 +1,7 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
+use crossbeam_queue::SegQueue;
 use log::LevelFilter;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
@@ -20,14 +17,16 @@ use crate::{
 use super::{Append, ModuleLevel};
 
 /// Type defining message queue
-/// contains `LogMessage` in VecDeque
-type MessageQueue = Arc<Mutex<VecDeque<LogMessage>>>;
+/// contains `LogMessage` in SegQueue
+type Queue = SegQueue<LogMessage>;
+type MessageQueue = Arc<Queue>;
 
 /// Trait to send log messages to remote target
 #[async_trait]
 pub trait SendLog: Send + Sync + 'static {
     const BATCH_SIZE: usize;
     const WAIT_TIMEOUT: Duration;
+    const FLUSH_MESSAGE_LIMIT: usize = 10_000;
     async fn send_log(&self, messages: &[LogMessage]);
 }
 
@@ -38,14 +37,14 @@ pub struct RemoteAppender<S: SendLog> {
     module_levels: Vec<ModuleLevel>,
     message_queue: MessageQueue,
     log_sender: Arc<S>,
-    close_notifier: Sender<()>,
     message_filter: Box<dyn MessageFilter>,
+    close_notifier: Sender<()>,
 }
 
 // Implement RemoteAppender
 impl<S: SendLog> RemoteAppender<S> {
     pub fn new(log_sender: S) -> Self {
-        let message_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let message_queue = Arc::new(SegQueue::new());
         let (close_notifier, receiver) = channel::<()>(1);
         let log_sender = Arc::new(log_sender);
         let remote_appender = Self {
@@ -54,19 +53,28 @@ impl<S: SendLog> RemoteAppender<S> {
             module_levels: vec![],
             message_queue,
             log_sender,
-            close_notifier,
             message_filter: Box::new(DefaultMessageFilter),
+            close_notifier,
         };
         remote_appender.start_worker(receiver);
         remote_appender
     }
 
+    fn pop_all(&self, max_limit: usize) -> Vec<LogMessage> {
+        let mut messages = Vec::with_capacity(max_limit);
+        for _ in 0..max_limit {
+            match self.message_queue.pop() {
+                Some(msg) => messages.push(msg),
+                None => break,
+            }
+        }
+        messages
+    }
+
     async fn flush(&self) -> Result<()> {
         let batch_size = S::BATCH_SIZE;
-        let messages = {
-            let mut message_queue = self.message_queue.lock()?;
-            message_queue.drain(0..).collect::<Vec<_>>()
-        };
+        let flush_limit = S::FLUSH_MESSAGE_LIMIT;
+        let messages = self.pop_all(flush_limit);
         let mut set = tokio::task::JoinSet::new();
         for chunk in messages.chunks(batch_size) {
             let log_sender = self.log_sender.clone();
@@ -87,22 +95,7 @@ impl<S: SendLog> RemoteAppender<S> {
         tokio::spawn(async move {
             tokio::select! {
                 _ = close_notification.recv() => {},
-                _ = async {
-                    loop {
-                        sleep(timeout).await;
-                        let messages = {
-                            let Ok(mut message_queue) = message_queue.try_lock() else {
-                                continue;
-                            };
-                            let size = message_queue.len();
-                            let size = if size < batch_size {size} else {batch_size};
-                            message_queue.drain(0..size).collect::<Vec<_>>()
-                        };
-                        if !messages.is_empty() {
-                            log_sender.send_log(&messages).await;
-                        }
-                    }
-                } => {}
+                _ = worker_loop(message_queue, log_sender, batch_size, timeout) => {}
             }
         });
     }
@@ -130,6 +123,32 @@ impl<S: SendLog> RemoteAppender<S> {
     }
 }
 
+async fn worker_loop<S: SendLog>(
+    message_queue: MessageQueue,
+    log_sender: Arc<S>,
+    batch_size: usize,
+    timeout: Duration,
+) {
+    loop {
+        sleep(timeout).await;
+        let messages = drain_messages(message_queue.as_ref(), batch_size);
+        if !messages.is_empty() {
+            log_sender.send_log(&messages).await;
+        }
+    }
+}
+
+fn drain_messages(message_queue: &Queue, batch_size: usize) -> Vec<LogMessage> {
+    let mut messages = Vec::with_capacity(batch_size);
+    for _ in 0..batch_size {
+        match message_queue.pop() {
+            Some(msg) => messages.push(msg),
+            None => break,
+        }
+    }
+    messages
+}
+
 /// Implement Append for RemoteAppender
 #[async_trait]
 impl<S: SendLog> Append for RemoteAppender<S> {
@@ -145,8 +164,7 @@ impl<S: SendLog> Append for RemoteAppender<S> {
     fn append(&self, record: &log::Record) -> Result<()> {
         if self.message_filter.filter_message(record) && self.enabled(record) {
             let message: LogMessage = record.try_into()?;
-            let mut message_queue = self.message_queue.lock()?;
-            message_queue.push_back(message);
+            self.message_queue.push(message);
         }
         Ok(())
     }
@@ -159,6 +177,8 @@ impl<S: SendLog> Append for RemoteAppender<S> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
     use log::RecordBuilder;
 
@@ -169,6 +189,12 @@ mod tests {
         const BATCH_SIZE: usize = EXPECTED_BATCH_SIZE as usize;
         const WAIT_TIMEOUT: Duration = Duration::from_millis(10);
         async fn send_log(&self, messages: &[LogMessage]) {
+            println!("{:#?}", messages);
+            println!(
+                "message len: {}, batch_size: {}",
+                messages.len(),
+                Self::BATCH_SIZE
+            );
             assert!(messages.len().le(&Self::BATCH_SIZE));
             let mut count = self.0.lock().unwrap();
             *count += 1;
@@ -197,7 +223,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_message_filter() {
+    async fn test_message_filter_remote_appender() {
         struct RemoteAppenderMessageFilter;
         impl MessageFilter for RemoteAppenderMessageFilter {
             fn filter_message(&self, record: &log::Record) -> bool {

@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_message_filter() {
+    fn test_message_filter_channel_appender() {
         struct Filter;
         impl MessageFilter for Filter {
             fn filter_message(&self, record: &log::Record) -> bool {
